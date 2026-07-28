@@ -31,9 +31,11 @@ from datetime import datetime, date
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.application import MIMEApplication
+from email.message import EmailMessage
 from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import urljoin
+
 
 import requests
 import pytz
@@ -147,7 +149,7 @@ def fetch_url_with_backoff(url: str) -> requests.Response:
                 timeout=HTTP_TIMEOUT_SECS,
                 headers={"User-Agent": "SBP-Automation-GitHubActions/1.0"}
             )
-            if resp.status_code in (429, 500, 502, 503, 504):
+            if resp.status_code == 429 or (500 <= resp.status_code < 600):
                 log.warning("HTTP %d from server. Retrying in %ds...", resp.status_code, backoff)
                 time.sleep(backoff)
                 backoff *= 2
