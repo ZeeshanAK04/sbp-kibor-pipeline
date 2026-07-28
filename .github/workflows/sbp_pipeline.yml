@@ -1,0 +1,39 @@
+name: SBP Exchange Rate Daily Pipeline
+
+on:
+  schedule:
+    # Trigger at 11:00 UTC (4:00 PM PKT) every weekday (Monday to Friday)
+    - cron: '0 11 * * 1-5'
+  workflow_dispatch:
+    # Allows manual triggering from the GitHub Actions tab
+
+jobs:
+  run-pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 200 # Allows the 3-hour polling window to execute completely without timing out
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip' # Caches dependencies for faster subsequent runs
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Execute Automation Pipeline
+        env:
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+          ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
+        run: python main.py
