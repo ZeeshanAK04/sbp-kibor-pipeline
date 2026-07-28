@@ -3,7 +3,7 @@ name: SBP Exchange Rate Daily Pipeline
 on:
   schedule:
     # Trigger at 11:00 UTC (4:00 PM PKT) every weekday (Monday to Friday)
-    - cron: '17 11 * * 1-5'
+    - cron: '37 10 * * 1-5'
   workflow_dispatch:
     # Allows manual triggering from the GitHub Actions tab
 
