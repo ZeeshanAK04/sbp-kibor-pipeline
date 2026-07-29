@@ -1,0 +1,43 @@
+name: KIBOR Publish-Time Sniffer
+
+on:
+  schedule:
+    # Every 15 minutes, 08:00 to 19:00 PKT (03:00-14:00 UTC), Mon-Fri.
+    # Wide net -- we don't know the real window yet, this is how we find it.
+    - cron: '*/15 3-14 * * 1-5'
+  workflow_dispatch:
+
+permissions:
+  contents: write # needed so the job can commit the sighting log back to the repo
+
+jobs:
+  sniff:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Sniffer Check
+        id: sniff
+        run: python sniffer.py
+
+      - name: Commit sighting log if a match was found
+        if: steps.sniff.outputs.found == 'true'
+        run: |
+          git config user.name "kibor-sniffer-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add sighting_log.csv
+          git commit -m "Log KIBOR sighting $(date -u +'%Y-%m-%d %H:%M UTC')"
+          git push
