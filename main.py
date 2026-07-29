@@ -1,5 +1,5 @@
 """
-SBP Weighted Average Customer Exchange Rates — GitHub Actions Pipeline
+SBP KIBOR Rates — GitHub Actions Pipeline
 ======================================================================
 Production-grade Python pipeline designed to run on ephemeral GitHub runners.
 
@@ -51,13 +51,14 @@ load_dotenv()
 # ─────────────────────────────────────────────────────────────────────
 
 # SBP Target Page URL
-SBP_TARGET_URL = "https://www.sbp.org.pk/economic-data/weighted-average-customer-exchange-rates"
+SBP_TARGET_URL = "https://www.sbp.org.pk/economic-data/kibor-rates"
 
 # SBP JSON API (Fail-safe Fallback for client-side rendered page)
+# NOTE: no "-external" suffix for this category — confirmed via DevTools.
 SBP_API_URL = (
     "https://www.sbp.org.pk/economic-data/"
-    "get-economic-data-by-cat-external"
-    "?slug=weighted-average-customer-exchange-rates"
+    "get-economic-data-by-cat"
+    "?slug=kibor-rates"
 )
 
 # Timezone configurations
@@ -218,8 +219,11 @@ def search_pdf_in_api(today_pkt: date) -> Optional[dict[str, str]]:
         resp = fetch_url_with_backoff(SBP_API_URL)
         data = resp.json()
         
-        # SBP API structure: exchange-rates -> weighted-average-customer-exchange-rates -> daily -> {year: [entries]}
-        daily_rates = data["exchange-rates"]["weighted-average-customer-exchange-rates"]["daily"]
+        # SBP API structure: interest-rates -> kibor-rates -> daily -> {year: [entries]}
+        # NOTE: entries also carry a "commulative_archive" field (SBP's own typo) for the
+        # running/cumulative file. We deliberately ignore it and only use "attachment",
+        # which is the single day's PDF.
+        daily_rates = data["interest-rates"]["kibor-rates"]["daily"]
         today_str = today_pkt.isoformat() # e.g. "2026-07-28"
         
         # Scan year lists (check latest year first)
@@ -337,12 +341,15 @@ def extract_table_from_pdf(pdf_bytes: bytes) -> str:
                 return generate_html_table(table)
                 
             # Attempt 2: Text parsing fallback if tables list is empty
+            # NOTE: KIBOR rows are labeled by tenor (e.g. "1-WEEK", "1-MONTH", "3-MONTH"),
+            # not a 3-letter currency code like the FX sheet, so the first-column check
+            # here is intentionally more permissive than a strict "3 uppercase letters" test.
             text = first_page.extract_text() or ""
             rows = []
             for line in text.split("\n"):
                 parts = line.strip().split()
-                if len(parts) >= 3 and len(parts[0]) == 3 and parts[0].isalpha() and parts[0].isupper():
-                    # Check for numeric exchange rate values
+                if len(parts) >= 3 and any(ch.isalpha() for ch in parts[0]):
+                    # Check for numeric bid/offer rate values
                     try:
                         float(parts[1])
                         float(parts[2])
@@ -351,7 +358,7 @@ def extract_table_from_pdf(pdf_bytes: bytes) -> str:
                         continue
                     
             if rows:
-                table = [["CURRENCY", "BUYING", "SELLING"]] + rows
+                table = [["TENOR", "BID", "OFFER"]] + rows
                 return generate_html_table(table)
                 
             return "<p style='color: orange;'>Warning: Could not extract currency table structure from PDF.</p>"
@@ -421,12 +428,12 @@ def build_alert_html(html_table: str, target_date_str: str) -> str:
 <html>
 <head>
   <meta charset="utf-8">
-  <title>SBP Exchange Rates Alert</title>
+  <title>SBP KIBOR Rates Alert</title>
 </head>
 <body style="margin: 0; padding: 20px; background-color: #f7fafc; font-family: Arial, sans-serif;">
   <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 4px; overflow: hidden; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);">
     <div style="background-color: #1a365d; color: #ffffff; padding: 18px; font-size: 20px; font-weight: bold; text-align: center; letter-spacing: 0.5px;">
-      🚨 NEW SBP EXCHANGE RATES PUBLISHED
+      🚨 NEW SBP KIBOR RATES PUBLISHED
     </div>
     <div style="padding: 20px;">
       <div style="font-size: 14px; color: #718096; margin-bottom: 15px; font-weight: bold; text-transform: uppercase;">
@@ -449,7 +456,7 @@ def build_alert_html(html_table: str, target_date_str: str) -> str:
 def email_file(config: dict[str, Any], pdf_bytes: bytes, filename: str, html_table: str, today_pkt: date) -> None:
     """Emails the alert with tabular rate sheet embedded and the original PDF attached."""
     pkt_date_str = today_pkt.strftime("%d-%b-%Y")
-    subject = f"[ALERT] SBP Exchange Rates - {pkt_date_str}"
+    subject = f"[ALERT] SBP KIBOR Rates - {pkt_date_str}"
     
     # Construct High-Visibility HTML Alert Email
     html_body = build_alert_html(html_table, today_pkt.strftime("%B %d, %Y"))
@@ -476,11 +483,11 @@ def email_file(config: dict[str, Any], pdf_bytes: bytes, filename: str, html_tab
 def email_failure_alert(config: dict[str, Any], today_pkt: date) -> None:
     """Emails an alert to the administrator if the daily PDF wasn't uploaded in time."""
     pkt_date_str = today_pkt.strftime("%d-%b-%Y")
-    subject = f"ALERT: SBP Daily PDF Missing - {pkt_date_str}"
+    subject = f"ALERT: SBP KIBOR Daily PDF Missing - {pkt_date_str}"
     body = (
         f"Attention Admin,\n\n"
-        f"The SBP daily PDF pipeline failed to locate today's Weighted Average Customer "
-        f"Exchange Rates PDF before the cutoff time (7:00 PM PKT).\n\n"
+        f"The SBP KIBOR pipeline failed to locate today's KIBOR Rates "
+        f"PDF before the cutoff time.\n\n"
         f"Date: {today_pkt.strftime('%A, %d %B %Y')}\n\n"
         f"Please verify manually: {SBP_TARGET_URL}\n"
     )
@@ -519,7 +526,7 @@ def send_smtp_email(config: dict[str, Any], msg: MIMEMultipart | EmailMessage) -
 
 def main() -> None:
     """Orchestrates the polling loop with strict cutoff and timezone calculations."""
-    log.info("Initializing SBP daily exchange rate monitoring pipeline.")
+    log.info("Initializing SBP daily KIBOR rate monitoring pipeline.")
     
     config = load_config()
     
