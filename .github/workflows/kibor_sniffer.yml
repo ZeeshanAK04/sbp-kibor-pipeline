@@ -2,9 +2,13 @@ name: KIBOR Publish-Time Sniffer
 
 on:
   schedule:
-    # Every 15 minutes, 08:00 to 19:00 PKT (03:00-14:00 UTC), Mon-Fri.
-    # Wide net -- we don't know the real window yet, this is how we find it.
-    - cron: '*/15 3-14 * * 1-5'
+    # Every 15 minutes, 08:00-19:00 PKT (03:00-14:00 UTC), Mon-Fri.
+    # NOTE: offset minutes (7/22/37/52) instead of round ones (0/15/30/45)
+    # deliberately -- GitHub's own docs warn that scheduled workflows can be
+    # delayed during periods of high load, and high load concentrates at the
+    # top of every hour. Off-round minutes measurably reduce (not eliminate)
+    # delay risk. This won't guarantee on-time firing, just improves the odds.
+    - cron: '7,22,37,52 3-14 * * 1-5'
   workflow_dispatch:
 
 permissions:
